@@ -1,0 +1,6 @@
+Produto,Categoria,Status,Valor
+Notebook,Eletrônicos,Concluído,3500.00
+Mouse,Eletrônicos,Pendente,150.00
+Cadeira,Móveis,Concluído,800.00
+Teclado,Eletrônicos,Concluído,300.00
+Mesa,Móveis,Cancelado,1200.00

@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard de Análise</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; max-width: 800px; margin: auto; }
+        form { display: flex; gap: 10px; margin-bottom: 20px; padding: 15px; background: #f4f4f4; border-radius: 8px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #007bff; color: white; }
+    </style>
+</head>
+<body>
+
+    <h2>Analisador de CSV</h2>
+
+    <form id="formDados">
+        <input type="file" id="arquivoCsv" accept=".csv" required>
+        <input type="text" id="coluna" placeholder="Coluna (ex: Status)">
+        <input type="text" id="valor" placeholder="Valor (ex: Ativo)">
+        <button type="submit">Processar</button>
+    </form>
+
+    <div id="resumo"></div>
+
+    <table id="tabelaResultados">
+        <thead id="cabecalhoTabela"></thead>
+        <tbody id="corpoTabela"></tbody>
+    </table>
+
+    <script>
+        const form = document.getElementById('formDados');
+        
+        form.addEventListener('submit', async (evento) => {
+            evento.preventDefault(); 
+            
+            const formData = new FormData();
+            const arquivo = document.getElementById('arquivoCsv').files[0];
+            const coluna = document.getElementById('coluna').value;
+            const valor = document.getElementById('valor').value;
+
+            formData.append('file', arquivo);
+            if (coluna) formData.append('coluna_filtro', coluna);
+            if (valor) formData.append('valor_filtro', valor);
+
+            try {
+                const resposta = await fetch('/api/processar-dados', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!resposta.ok) {
+                    const erro = await resposta.json();
+                    alert("Erro: " + erro.detail);
+                    return;
+                }
+
+                const dadosJson = await resposta.json();
+                renderizarTabela(dadosJson);
+
+            } catch (erro) {
+                console.error("Erro na requisição:", erro);
+                alert("Erro ao conectar com a API.");
+            }
+        });
+
+        function renderizarTabela(retornoApi) {
+            const resumo = document.getElementById('resumo');
+            const cabecalho = document.getElementById('cabecalhoTabela');
+            const corpo = document.getElementById('corpoTabela');
+
+            resumo.innerHTML = `<strong>Arquivo:</strong> ${retornoApi.arquivo_processado} | <strong>Linhas encontradas:</strong> ${retornoApi.total_linhas_resultado}`;
+            
+            cabecalho.innerHTML = '';
+            corpo.innerHTML = '';
+
+            if (retornoApi.total_linhas_resultado === 0) return;
+
+            const trCabecalho = document.createElement('tr');
+            retornoApi.colunas_disponiveis.forEach(col => {
+                const th = document.createElement('th');
+                th.textContent = col;
+                trCabecalho.appendChild(th);
+            });
+            cabecalho.appendChild(trCabecalho);
+
+            retornoApi.dados.forEach(linha => {
+                const tr = document.createElement('tr');
+                retornoApi.colunas_disponiveis.forEach(col => {
+                    const td = document.createElement('td');
+                    td.textContent = linha[col];
+                    tr.appendChild(td);
+                });
+                corpo.appendChild(tr);
+            });
+        }
+    </script>
+
+</body>
+</html>
