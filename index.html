@@ -3,47 +3,79 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard de Análise</title>
+    <title>Processador Universal de CSV</title>
     <style>
-        body { font-family: Arial, sans-serif; padding: 20px; max-width: 800px; margin: auto; }
-        form { display: flex; gap: 10px; margin-bottom: 20px; padding: 15px; background: #f4f4f4; border-radius: 8px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #007bff; color: white; }
+        body { font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: auto; }
+        .painel { background: #f8f9fa; padding: 20px; border-radius: 8px; border: 1px solid #ddd; }
+        .grupo { margin-bottom: 15px; display: flex; flex-direction: column; }
+        label { margin-bottom: 5px; font-weight: bold; }
+        input, select, button { padding: 10px; border: 1px solid #ccc; border-radius: 4px; }
+        button { background-color: #007bff; color: white; border: none; cursor: pointer; margin-top: 10px; font-weight: bold; }
+        button:hover { background-color: #0056b3; }
+        .escondido { display: none; }
     </style>
 </head>
 <body>
 
-    <h2>Analisador de CSV</h2>
+    <h2>Processador Universal de CSV</h2>
 
-    <form id="formDados">
-        <input type="file" id="arquivoCsv" accept=".csv" required>
-        <input type="text" id="coluna" placeholder="Coluna (ex: Status)">
-        <input type="text" id="valor" placeholder="Valor (ex: Ativo)">
-        <button type="submit">Processar</button>
-    </form>
+    <div class="painel">
+        <form id="formFiltro">
+            <div class="grupo">
+                <label>1. Envie seu arquivo CSV:</label>
+                <input type="file" id="arquivoCsv" accept=".csv" required>
+            </div>
 
-    <div id="resumo"></div>
+            <div class="grupo">
+                <label>2. Escolha a ação:</label>
+                <select id="tipoFiltro">
+                    <option value="remover_nulos">Limpeza: Remover linhas com dados em branco</option>
+                    <option value="remover_duplicatas">Limpeza: Remover linhas repetidas</option>
+                    <option value="filtro_exato">Busca: Encontrar valores exatos em uma coluna</option>
+                </select>
+            </div>
 
-    <table id="tabelaResultados">
-        <thead id="cabecalhoTabela"></thead>
-        <tbody id="corpoTabela"></tbody>
-    </table>
+            <div id="camposFiltroExato" class="escondido">
+                <div class="grupo">
+                    <input type="text" id="coluna" placeholder="Nome da Coluna (ex: Categoria)">
+                </div>
+                <div class="grupo">
+                    <input type="text" id="valor" placeholder="Valor a procurar (ex: Eletrônicos)">
+                </div>
+            </div>
+
+            <button type="submit">Processar e Baixar CSV</button>
+        </form>
+    </div>
 
     <script>
-        const form = document.getElementById('formDados');
-        
-        form.addEventListener('submit', async (evento) => {
-            evento.preventDefault(); 
+        const selectFiltro = document.getElementById('tipoFiltro');
+        const divCamposExatos = document.getElementById('camposFiltroExato');
+
+        // Escuta o menu dropdown para esconder ou mostrar os campos de texto
+        selectFiltro.addEventListener('change', () => {
+            if (selectFiltro.value === 'filtro_exato') {
+                divCamposExatos.classList.remove('escondido');
+            } else {
+                divCamposExatos.classList.add('escondido');
+            }
+        });
+
+        document.getElementById('formFiltro').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const arquivo = document.getElementById('arquivoCsv').files[0];
+            const tipoFiltro = selectFiltro.value;
             
             const formData = new FormData();
-            const arquivo = document.getElementById('arquivoCsv').files[0];
-            const coluna = document.getElementById('coluna').value;
-            const valor = document.getElementById('valor').value;
-
             formData.append('file', arquivo);
-            if (coluna) formData.append('coluna_filtro', coluna);
-            if (valor) formData.append('valor_filtro', valor);
+            formData.append('tipo_filtro', tipoFiltro);
+            
+            // Só anexa a coluna e o valor se a opção de filtro exato foi a escolhida
+            if (tipoFiltro === 'filtro_exato') {
+                formData.append('coluna', document.getElementById('coluna').value);
+                formData.append('valor', document.getElementById('valor').value);
+            }
 
             try {
                 const resposta = await fetch('/api/processar-dados', {
@@ -57,46 +89,33 @@
                     return;
                 }
 
-                const dadosJson = await resposta.json();
-                renderizarTabela(dadosJson);
+                // --- Lógica de Download Automático ---
+                // Transforma a resposta em um "Blob" (arquivo bruto em memória)
+                const blob = await resposta.blob();
+                
+                // Cria um link temporário falso no navegador e clica nele sozinho para baixar
+                const url = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                
+                // Tenta ler o nome do arquivo que a API enviou (ex: modificado_vendas.csv)
+                let nomeArquivo = "arquivo_processado.csv";
+                const disposition = resposta.headers.get('Content-Disposition');
+                if (disposition && disposition.includes('filename=')) {
+                    nomeArquivo = disposition.split('filename=')[1];
+                }
+
+                link.download = nomeArquivo;
+                document.body.appendChild(link);
+                link.click(); // Força o download
+                link.remove();
+                window.URL.revokeObjectURL(url);
 
             } catch (erro) {
-                console.error("Erro na requisição:", erro);
-                alert("Erro ao conectar com a API.");
+                alert("Erro de conexão com o servidor.");
+                console.error(erro);
             }
         });
-
-        function renderizarTabela(retornoApi) {
-            const resumo = document.getElementById('resumo');
-            const cabecalho = document.getElementById('cabecalhoTabela');
-            const corpo = document.getElementById('corpoTabela');
-
-            resumo.innerHTML = `<strong>Arquivo:</strong> ${retornoApi.arquivo_processado} | <strong>Linhas encontradas:</strong> ${retornoApi.total_linhas_resultado}`;
-            
-            cabecalho.innerHTML = '';
-            corpo.innerHTML = '';
-
-            if (retornoApi.total_linhas_resultado === 0) return;
-
-            const trCabecalho = document.createElement('tr');
-            retornoApi.colunas_disponiveis.forEach(col => {
-                const th = document.createElement('th');
-                th.textContent = col;
-                trCabecalho.appendChild(th);
-            });
-            cabecalho.appendChild(trCabecalho);
-
-            retornoApi.dados.forEach(linha => {
-                const tr = document.createElement('tr');
-                retornoApi.colunas_disponiveis.forEach(col => {
-                    const td = document.createElement('td');
-                    td.textContent = linha[col];
-                    tr.appendChild(td);
-                });
-                corpo.appendChild(tr);
-            });
-        }
     </script>
-
 </body>
 </html>

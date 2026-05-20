@@ -1,12 +1,11 @@
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
 import pandas as pd
 import io
 
 app = FastAPI(
-    title="API de Analise de Dados",
-    description="API para upload e processamento de arquivos CSV"
+    title="API de Analise de Dados"
 )
 
 # Importacao do CORSMiddleware para permitir requisições de qualquer origem e portas diferentes 
@@ -25,39 +24,44 @@ async def root():
 
 # Rota POST (/api/processar-dados) para processar o arquivo CSV enviado pelo usuário, com filtros opcionais
 @app.post("/api/processar-dados")
-async def processar_dados( #Cria a funcao processar_dados que recebe um arquivo CSV e filtros opcionais para processar os dados
+async def processar_dados(
     file: UploadFile = File(...),
-    coluna_filtro: str = Form(None),
-    valor_filtro: str = Form(None)
+    tipo_filtro: str = Form(...),
+    coluna: str = Form(None),
+    valor: str = Form(None)
 ):
-    if not file.filename.endswith('.csv'): # Se o arquivo nao terminar com .csv
-        raise HTTPException(status_code=400, detail="Arquivo deve ser do tipo CSV") #Retorna um erro 400 informando que o arquivo deve ser do tipo CSV
-    
+    if not file.filename.endswith('.csv'): # Se o arquivo nao finalizar em .csv, retorna um erro
+        raise HTTPException(status_code=400, detail="Envie um arquivo CSV.")
+
     try:
-        conteudo_bytes = await file.read() # Se nao, le o conteudo do arquivo como bytes
+        conteudo = await file.read() # Le o arquivo CSV enviado pelo usuário
+        df = pd.read_csv(io.StringIO(conteudo.decode('utf-8'))) # Converte o conteúdo do arquivo para utf-8 e depois para um DataFrame do pandas
 
-        texto_csv = conteudo_bytes.decode('utf-8') # Decodifica os bytes para texto usando UTF-8
-        df = pd.read_csv(io.StringIO(texto_csv)) # Le o texto CSV usando pandas e armazena em um DataFrame
-
-        if coluna_filtro and valor_filtro:
-            if coluna_filtro in df.columns: # Tenta verificar se a coluna de filtro existe no DataFrame
-                df = df[df[coluna_filtro].astype(str) == valor_filtro] # Se sim, filtra a coluna especificada pelo valor fornecido
-            else:
-                raise HTTPException(status_code=400, detail=f"A coluna '{coluna_filtro}' não existe neste CSV.") # Se nao, retorna um erro 400 informando que a coluna de filtro nao existe no CSV
+        # Aplica o filtro genérico escolhido pelo usuário
+        if tipo_filtro == "remover_nulos":
+            df = df.dropna() # Remove as linhas que contêm valores nulos (NaN) do DataFrame
             
-        resposta = { # Cria uma resposta
-            "arquivo_processado": file.filename, # Qual arquivo foi processado
-            "total_linhas_resultado": len(df), # Quantas linhas tem o resultado apos o filtro ser aplicado
-            "colunas_disponiveis": list(df.columns), # Quais colunas estao disponiveis no DataFrame apos o processamento
-            "dados": df.to_dict(orient='records')  # Converte o DataFrame para uma lista de dicionários
-        }
+        elif tipo_filtro == "remover_duplicatas":
+            df = df.drop_duplicates() # Remove as linhas duplicadas do DataFrame, mantendo apenas a primeira ocorrência de cada linha duplicada
+            
+        elif tipo_filtro == "filtro_exato": # Aplica um filtro exato com base na coluna e valor fornecidos pelo usuário
+            if coluna and valor and coluna in df.columns: # Verifica se a coluna e o valor foram fornecidos e se a coluna existe no DataFrame
+                df = df[df[coluna].astype(str) == valor] 
+            else: # Se nao for fornecido ou a coluna nao existir, retorna um erro
+                raise HTTPException(status_code=400, detail="Coluna ou valor inválido para o filtro.")
+
+        # Converte o DataFrame modificado de volta para texto CSV
+        stream = io.StringIO()
+        df.to_csv(stream, index=False) 
+        response_bytes = stream.getvalue().encode('utf-8')
         
-        return resposta # Retorna a resposta com os dados processados
-    
-    except Exception as e: # Caso de erro durante o processamento do arquivo, captura a exceção e retorna um erro 500 com a mensagem de erro
-        raise HTTPException(status_code=500, detail=f"Erro ao processar o arquivo: {str(e)}")
-    
+        # Envia o arquivo para o navegador como um anexo para download
+        nome_arquivo_saida = f"modificado_{file.filename}"
+        return StreamingResponse(
+            io.BytesIO(response_bytes), 
+            media_type="text/csv", 
+            headers={"Content-Disposition": f"attachment; filename={nome_arquivo_saida}"}
+        )
 
-
-
-
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
